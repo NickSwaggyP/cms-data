@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Vue App</title>
+  <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
+  <script src="https://unpkg.com/element-ui/lib/index.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <el-table
+        :data="tableData"
+        :default-sort = "{prop: 'date', order: 'descending'}"
+    >
+        <el-table-column
+            v-for="column in columnData"
+            :prop="column.id"
+            :key="column.id"
+            :label="column.name"
+            sortable>
+        </el-table-column>
+    </el-table>
+    <div style="margin: 40px auto;">
+        <h3>通过选择器（可多选），可查看单个页面每日日期数据</h3>
+        <el-select v-model="value" multiple @change="updateChart" placeholder="请选择">
+            <el-option
+              v-for="item in jsonFiles"
+              :key="item.name"
+              :label="item.name"
+              :value="item.name">
+            </el-option>
+          </el-select>
+    </div>
+    <template>
+    <div style="display: flex;">
+        <div v-for="(item,index) in content" :id="'chart-container'+index" style="width: 500px; height: 400px;margin-right: 20px;"></div>  
+    </div>
+    </template>
+  </div>
+
+  <script>
+    // 创建一个 Vue 实例
+    new Vue({
+      el: '#app',
+      data: {
+        jsonFiles: [],
+        value: [],
+        EchartInstance: [],
+        tableData: [],
+        columnData:[],
+        chartTable:[]
+      },
+      created() {
+        this.changeMessage();
+        this.initFormsTable();
+      },
+      methods: {
+        changeMessage() {
+            fetch('http://127.0.0.1:3000/api/json-files')
+                .then(response => response.json())
+                .then(data => {
+                this.jsonFiles = data;
+                this.jsonFiles=this.jsonFiles.filter(item => item.name.length<20)
+                })
+                .catch(error => {
+                console.error(error);
+            });
+        },
+        initFormsTable(){
+            fetch('http://127.0.0.1:3000/api/json-forms')
+                .then(response => response.json())
+                .then(data => {
+                    this.columnData=JSON.parse(data[0].content).data.columns;
+                    this.columnData.shift();
+                    this.columnData.splice(2,1)
+                    this.columnData.unshift({id:"page",name:"页面"})
+                    this.tableData=data.map(item => {
+                        const itemData=JSON.parse(item.content).data;
+                        const itemRow=itemData.rows
+                        let result = {  };
+                        for (let i = 0; i < itemRow.length; i++) {
+                        const item = itemRow[i];
+                        for (let key in item) {
+                            if (typeof item[key] === 'string') {
+                                result[key] = item[key];
+                            }else if(typeof item[key] === 'number'){
+                                // item[key].toFixed(2)
+                                result[key] = (result[key] || 0) + item[key];
+                                result[key]=Number(result[key].toFixed(2))
+                            }
+                        }
+                        }
+                        return {
+                            page:item.name.replace('cms页面-','').replace('.json',''),
+                            ...result
+                        }});
+                })
+                .catch(error => {
+                console.error(error);
+            });
+        },
+        updateChart(){
+            Vue.nextTick(() => {
+                    this.EchartInstance=[]
+                    this.content.forEach((i,index)=>{
+                    this.EchartInstance.push(echarts.init(document.getElementById(`chart-container${index}`)));
+                    if(i.data){
+                        const legendData = i.data.series.map(item => item.name)
+                        let selected={}
+                        legendData.forEach(item => {
+                            selected[item] = false;
+                        })
+                        selected={
+                            ...selected, 
+                            '展现PV':true,
+                            '展现UV':true,
+                            '分发PV':true,
+                            '分发UV':true
+                        }
+                        const options = {
+                            title: {
+                                text: i.name
+                            },
+                            tooltip: {
+                                trigger: 'axis',
+                                axisPointer: {
+                                type: 'cross',
+                                label: {
+                                    backgroundColor: '#6a7985'
+                                }
+                                }
+                            },
+                            legend: {
+                                x:'center',
+                                y:'5%',
+                                data: i.data.series.map(item => item.name),
+                                selected: selected
+                            },
+                            toolbox: {
+                                feature: {
+                                saveAsImage: {}
+                                }
+                            },
+                            grid: {
+                                left: '3%',
+                                right: '4%',
+                                bottom: '3%',
+                                containLabel: true
+                            },
+                            xAxis: [
+                                {
+                                boundaryGap: false,
+                                type: 'category',
+                                data: i.data.categories
+                                }
+                            ],
+                            yAxis: [
+                                {
+                                type: 'value'
+                                }
+                            ],
+                            series: i.data.series.map(item => {
+                                return {
+                                    areaStyle: {},
+                                emphasis: {
+                                    focus: 'series'
+                                },
+                                ...item
+                                }
+                                })
+                            };
+                // 使用配置项显示图表
+                this.EchartInstance[index].setOption(options);
+                    }
+                })
+           
+            });
+        }
+      },
+      computed: {
+        content(){
+            const mergeArray = this.jsonFiles.filter(item => this.value.includes(item.name))
+            let contentArray=mergeArray.map(item=> JSON.parse(item.content))
+              contentArray=contentArray.map((item,index) => {
+                return {
+                    ...item,
+                    name:mergeArray[index].name
+                }
+            })
+            return mergeArray? contentArray:null;
+        }
+      }
+    });
+  </script>
+</body>
+</html>
